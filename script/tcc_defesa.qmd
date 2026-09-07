@@ -13,11 +13,8 @@ execute:
 ---
 
 ```{r}
-#| cache: true
 #| label: r_pacotes
-#| message: false
-#| echo: false
-#| warnings: false
+#| cache: true
 
 
 #library(reticulate)
@@ -37,6 +34,7 @@ source("./Funcoes.R")
 
 ```{python}
 #| label: py_pacotes
+#| cache: true
 
 import sys
 import platform
@@ -68,13 +66,12 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
-from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP,ZeroInflatedPoisson
-# pacote acima para a estimação dos modelos ZINB e ZIP, respectivamente
-from statsmodels.discrete.discrete_model import NegativeBinomial, Poisson
-# pacote anterior para a realização do teste de Vuong
-from scipy import stats # estatística chi2
+from statsmodels.discrete.discrete_model import NegativeBinomial, Poisson,ZeroInflatedNegativeBinomialP,ZeroInflatedPoisson
 from statsmodels.iolib.summary2 import summary_col # comparação entre modelos
 from statstests.tests import overdisp
+
+# from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP,ZeroInflatedPoisson
+from scipy import stats # estatística chi2
 from tqdm import tqdm
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import (
@@ -98,10 +95,12 @@ Alguns registros não podemo ser utilizados. Por exemplo, aqueles sem data de na
 
 library(data.table)
 library(arrow)
-source("../script/Funcoes.R")
+library(stringr)
+source("./Funcoes.R")
 
 obitos <- read_parquet("../data/raw/obitos.parquet")
 obitos_sub <- read_parquet("../data/raw/obitos_sub.parquet")
+agressoes_subset <- read_parquet("../data/raw/agressoes_subset.parquet")
 
 load("../data/dataset/obitos_st.rda")
 
@@ -151,9 +150,6 @@ DIFDATA contém a diferença em dias entre a ocorrência do óbito e o recebimen
 
 ```{r}
 #| label: difdata
-#| warnings: false
-#| echo: false
-#| message: false
 
 agressoes_base <- read_parquet("../data/dataset/agressoes_base.parquet")
 
@@ -178,9 +174,6 @@ A escolha das variáveis é resultado da consolidação da literatura, que tem b
 ```{r}
 #| label: matrix_categorias
 #| cache: true
-#| warnings: false
-#| echo: false
-#| message: false
 
 agressoes_subset <- read_parquet("../data/dataset/agressoes_subset.parquet")
 
@@ -273,9 +266,6 @@ ggplot(
 ```{r}
 #| label: descarte
 #| cache: true
-#| warnings: false
-#| echo: false
-#| message: false
 
 agressoes_subset <- read_parquet("../data/dataset/agressoes_subset.parquet")
 
@@ -350,7 +340,7 @@ Para esse estudo são utilizadas as classificações do CID
 - **Y08**: Agressão por meio não especificado
 - **Y09**: Agressão por meio não especificado (genérico)
 
-## Consolidação
+## Consolidação das bases imputadas
 
 Uma vez consolidadas as bases, os objetos de modelagem contêm as seguintes dimensões.
 
@@ -482,12 +472,13 @@ abaixo a mortalidade por faixa etária, sexo, raça para os três grupos de desf
 #| echo: false
 
 agg_d <- read_parquet("../data/dataset/agg_d.parquet")
+populacao <- readRDS("../data/raw/populacao.rds")
 rupocid <- c("Agressões", "Lesões autoprovocadas intencionalmente", "Acidentes","Eventos (fatos) cuja intenção é indeterminada")
 
 # por sexo, idade, raca, uf
 popepi1 <- populacao[,.(Pop = sum(Populacao)), by = .(uf, i_sd, sexo, raca)]
 
-agg_d_st1 <- popepi[agg_d[Grupo_desc %in% grupocid,.N, 
+agg_d_st1 <- popepi1[agg_d[Grupo_desc %in% grupocid,.N, 
                           by = .(ano, Grupo_desc, uf,i_sd,sexo,raca)
                   ][,raca := fifelse(is.na(raca), "Ignorado",raca)], on =.(uf,i_sd, sexo, raca)]
 
@@ -557,18 +548,19 @@ ggplot(data = tab3[!is.na(sexo)][!raca %in% c(NA, "Ignorado")])+
 ```{r}
 #| label: histograma
 
+agg_e <- read_parquet("../data/dataset/agg_e.parquet")
 # distribuição de contagem de óbitos
 # modelo socioeconômico
 
 hist(agg_e$N)
 
-# não se aplica poisson, mas binomial negativa
+paste("Dist. Poisson não parece a mais adequada, mas binomial negativa")
 # Inflacionado de zeros?
 
 
 ```
 
-#### Importação de dados
+#### Importação dos dados
 
 ```{python}
 #| label: preparobase_e
@@ -582,15 +574,15 @@ pasta = Path("../data/dataset/completos")
 
 arquivos = sorted(pasta.glob("*_e.parquet"))
 
-datasets = {
+datasets_e = {
     arq.stem: pd.read_parquet(arq)
     for arq in arquivos
 }
 
-datasets.keys()
-{nome: df.shape for nome, df in datasets.items()}
+datasets_e.keys()
+{nome: df.shape for nome, df in datasets_e.items()}
 
-for nome, df in datasets.items():
+for nome, df in datasets_e.items():
     df["data"] = pd.to_datetime(
         dict(
             year=df["ano"].astype(int),
@@ -601,13 +593,13 @@ for nome, df in datasets.items():
 
 # escluir colunas
 col_excluir = ["estado","coduf","uf"]
-datasets = {
+datasets_e = {
   nome: df.drop(columns = col_excluir)
-  for nome, df in datasets.items()
+  for nome, df in datasets_e.items()
 }
 
 # renomeia colunas
-datasets = {
+datasets_e = {
 nome: df.rename(columns={
 "Grupo_desc": "grupo_cid",
 "i_e": "idade",
@@ -616,17 +608,17 @@ nome: df.rename(columns={
 "N": "obitos",
 "Desemprego": "desemprego"
 })
-for nome, df in datasets.items()
+for nome, df in datasets_e.items()
 }
     
 # cria variaveis
-for nome, df in datasets.items():
+for nome, df in datasets_e.items():
   df["tempo"] = (
   (df["data"].dt.year - df["data"].dt.year.min()) * 12
   + (df["data"].dt.month - df["data"].dt.month.min())
 )
 
-for nome, df in datasets.items():
+for nome, df in datasets_e.items():
  df["mes_cat"] = df["mes"].astype("category")
 
 
@@ -687,28 +679,20 @@ def preparar_base(df):
 
 
 # remove categorias não usadas
-for nome, dados in datasets.items():
+for nome, dados in datasets_e.items():
     for col in dados.select_dtypes(include="category").columns:
         dados[col] = dados[col].cat.remove_unused_categories()
         
-
-# for nome, dados in datasets.items():
-#     print("\n", nome)
-#     for col in dados.select_dtypes(include="category").columns:
-#         print(f"{col}: {list(dados[col].cat.categories)}")
-        
-        
-for nome, dados in datasets.items():
-    print(nome, "→ zeros:", (dados["obitos"] == 0).sum())
-    
-    
-for nome, dados in datasets.items():
-    print(
-        nome,
-        "n =", len(dados),
+# resumo de estrutura dos dados
+for nome, dados in datasets_e.items():
+    print(nome, 
+    "N[reg]:", len(dados),
         "| mínimo =", dados["obitos"].min(),
-        "| máximo =", dados["obitos"].max()
+        "| máximo =", dados["obitos"].max(),
+    "|→ zeros:", (dados["obitos"] == 0).sum()
     )
+    
+
 ```
 
 Construção dos modelos
@@ -831,7 +815,7 @@ C(raca):desemprego
 #| label: modelos_poisson_ajuste
 #| cache: true
 
-df = preparar_base(df)
+df = preparar_base(datasets_e)
 
 def ajustar_ps(formula, data):
 
