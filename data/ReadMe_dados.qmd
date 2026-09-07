@@ -1,0 +1,246 @@
+---
+title: "ReadMe_dados"
+author: "Chrispim, PPM"
+format: html
+editor: visual
+---
+
+```{r}
+#| label: setup
+#| warnings: false
+#| echo: false
+#| message: false
+#| cache: true
+
+library(data.table)
+library(ggplot2)
+library(stringr)
+library(rstatix)
+library(DT)
+library(arrow)
+
+source("../script/funcoes.R")
+```
+
+## Fonte dos dados
+
+Os dados utilizados neste estudo foram compilados das seguintes fontes:
+
+- População: Censos demográficos do IBGE, de 2010 e 2022. (SIDRA - https://sidra.ibge.gov.br/)
+
+- Óbitos: Sistema de Informação de Mortalidade (SIM) do DATASUS. (ftp://ftp.datasus.gov.br)
+
+- IDH-M: Foi utlizado o Índice de Desenvolvimento Humano - Municipal estiamdo pelo Programa das Nações UInidas (PNUD) na iniciativa Atlas Brasil. (https://www.atlasbrasil.org.br)
+
+- Índice de GINI: Foi utlizado o índice GINI sobre a renda familiar *per capita* do Sistema IBGE de Recuperação automática que estimou o índice a partir dos dados da PNADC-T. (SIDRA - https://sidra.ibge.gov.br/)
+
+- CID: pode ser obtido no site do DATASUS.
+
+Os dados de óbito podem ser obtidos diretamente com a utilização do script 01-01_Importacao.R. As demais bases devem ser obtidas em seus respectivos sites. Atenção para a base populacional do censo, que não pode ser fornecida de uma só vez para os 5570 municípios e todos os níveis de agregação. É preciso fornecer um email para que o SIDRA envie os dados em blocos por email.
+
+### Nota técnica
+
+1.  Os dados trabalhados neste projeto mudam constantemente por conta da atualização das bases de dados públicos. Por esse motivo, pode haver mudanca de valores numéricos nas tentativas de reprodução dos seus códigos.
+2.  O dataset dos óbitos pode ser penosa para computadores mais antigos, processadores com 5 anos ou mais (texto escrito em 2026) e 8GB de RAM ou menos. Nesses casos, é oferecido um código SQL para manipulação da base de óbitos. Sugere-se. também a utilização do formato parquet para os datasets grandes, pois é mais eficiente no uso de memória para escrever e ler os arquivos. Fisicamente, arquivos parquet originados neste projeto ocupam espaço ligeiramente menor aos arquivos .rds/rdata.
+
+## Óbitos
+
+Base de óbitos do SIM e seleção dos óbitos por agressões (CID X85-Y09)
+
+```{r}
+#| label: obitos
+#| warnings: false
+#| echo: false
+#| message: false
+
+
+obitos_sub <- read_parquet(file = "../data/raw/obitos_sub.parquet")
+load("../data/imputados/agressoes_imp.rda")
+
+tabela <- rbindlist(list(
+  obitos_sub[,.(
+    Dataset = "Original",
+    Período = paste0("De: ", min(dt_obito,na.rm = T), " Até: ", max(dt_obito,na.rm = T)),
+    N = format(.N, big.mark=".", decimal.mark=",")
+)],
+agressoes_subset[,.(
+  Dataset = "Filtrado (Somente agressões)",
+  Período = paste0("De: ", min(dt_obito,na.rm = T), " Até: ", max(dt_obito,na.rm = T)),
+  N = format(.N, big.mark=".", decimal.mark=",")
+  )]
+))[,"Fração da Base de óbitos" := c(paste(((obitos_sub[,.N])/obitos_sub[,.N])*100,"%"),
+                paste(round(((agressoes_subset[,.N]))/obitos_sub[,.N]*100,1),"%"))]
+
+datatable(tabela,
+          caption = "Captura de base de óbitos do SIM")
+
+
+# Completude das variaveis
+
+preench <- data.table(varivael = names(obitos_sub),
+                      completude = obitos_sub[,unlist(lapply(.SD, meanfill))])[order(-completude)]
+
+preench
+```
+
+### Evolução temporal
+
+```{r}
+#| label: completude
+#| warnings: false
+#| echo: false
+#| message: false
+
+load("../data/imputados/agressoes_imp.rda")
+
+agressoes_subset[,.N, by = .(ano,agg_tipo)] |> 
+  ggplot()+
+  geom_line(aes(x = ano, y = N, linetype = agg_tipo))+
+  labs(title = "Óbitos por agressão [2010 - 2024]",
+       linetype = "Grupo CID")+
+  scale_y_continuous(
+    labels = function(x) {
+      format(x, big.mark = ".", decimal.mark = ",", scientific = FALSE)
+    }
+  )+
+  theme_minimal()+
+  theme(legend.position = "inside",
+        legend.position.inside = c(.35,.3),
+        legend.background = element_blank())
+```
+
+## População
+
+```{r}
+#| label: desemprego-time
+
+# populacao
+populacao <- readRDS("../data/raw/populacao.rds")
+head(populacao)
+paste("População para",populacao[,uniqueN(codmun6)],"municípios,",
+      populacao[,uniqueN(sexo)],"sexos,",
+      populacao[,uniqueN(raca)],"raças.",
+      "entre",populacao[,min(Idade)],"e",populacao[,max(Idade)],"anos de idade.")
+
+head(populacao)
+paste("Há dados municipais de",populacao[,uniqueN(codmun6)], "municípios")
+
+```
+
+## Desemprego
+
+```{r}
+#| label: desemprego-time
+
+library(stringr)
+# Desemprego
+desemprego <- readRDS("../data/raw/desemprego.rds")
+
+desemprego[,data := as.IDate(paste0(ano,"-",mes,"-01"))]
+head(desemprego)
+
+paste("Cobertura trimestral de",min(desemprego$ano), "até", max(desemprego$ano), "para",desemprego[,uniqueN(coduf)], "estados")
+
+```
+
+## IDH
+
+```{r}
+#| label: idh
+
+# IDH
+idhuf <- readRDS("../data/raw/idhuf.rds")
+head(idhuf)
+
+
+```
+
+## Cobertura da Atenção Básica
+
+```{r}
+#| label: cobertura_ab
+
+# Cobertura AB
+ab <- readRDS("../data/raw/ab.rds")
+head(ab)
+paste("Cobertura mensal de",min(ab$ano), "até", max(ab$ano), "para",desemprego[,uniqueN(coduf)], "estados")
+
+
+```
+
+## Índice de GINI
+
+```{r}
+#| label: gini
+
+# GINI
+gini <- readRDS("../data/raw/gini.rds")
+
+head(gini)
+
+paste("Cobertura anual de",min(gini$ano), "até", max(gini$ano), "para",desemprego[,uniqueN(coduf)], "estados")
+
+```
+
+## Datasets finais
+
+```{r}
+#| label: dataset
+
+agg_e <- readRDS("../data/dataset/agg_e.rds")
+
+agressoes_subset <- read_parquet(file = "../data/raw/agressoes_subset.parquet")
+
+source("../script/funcoes.R")
+
+# sem imputação de dados
+head(agg_e)
+completude_e <- agg_e[,lapply(.SD, meanfill)]
+completude_e
+
+reducao <- round((1-(agg_e[!is.na(raca)
+][!is.na(Populacao)
+][!is.na(uf)
+][!is.na(gini)
+][!is.na(cobab)
+][!is.na(Desemprego)
+][!is.na(raca)
+][,.N] / agg_e[,.N]))*100,2)
+
+
+paste("A redução do dataset pela simples eliminação dos dados ausentes é da ordem de", reducao, "%.")
+
+# com imputação de dados
+load("../data/imputados/agressoes_imp.rda")
+
+bases_completas <- readRDS(file = "../data/raw/basescompletas.rds")
+vars_imputadas <- names(agg_mice_imp[[1]])
+
+# vaerificar missing nas bases imputadas
+vars_imputadas <- c(
+  "sexo",
+  "raca",
+  "estcivil",
+  "escolaridade",
+  "DIFDATA"
+)
+
+preench_mice <- sapply(
+  bases_completas,
+  function(x) {
+    x[, sapply(
+      .SD,
+      meanfill
+    ), .SDcols = vars_imputadas]
+  }
+)
+
+
+# prenchimento origianl no SIM
+agressoes_subset[,sapply(.SD, meanfill), .SDcols = c(vars_imputadas)]
+
+# preenchimento das variáveis imputadas
+preench_mice
+
+
+```

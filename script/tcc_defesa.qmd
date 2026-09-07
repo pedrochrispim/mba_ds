@@ -1,0 +1,1660 @@
+---
+title: "Modelagem multivariada e imputação de dados para identificação de fatores associados aos óbitos violentos nacionais"
+author: "Chrispim, PPM"
+format: 
+  html: 
+    enhance: true
+jupyter: quarto
+editor: visual
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| cache: true
+#| label: r_pacotes
+#| message: false
+#| echo: false
+#| warnings: false
+
+
+#library(reticulate)
+library(data.table)
+library(ggplot2)
+library(stringr)
+library(patchwork)
+library(rstatix)
+library(zoo)
+library(arrow)
+library(janitor)
+library(DT)
+
+source("./Funcoes.R")
+
+```
+
+```{python}
+#| label: py_pacotes
+
+import sys
+import platform
+
+# !pip install pandas
+# !pip install numpy
+# !pip install factor_analyzer
+# !pip install sympy
+# !pip install scipy
+# !pip install matplotlib
+# !pip install seaborn
+# !pip install plotly
+# !pip install pingouin
+# !pip install pyshp
+# !pip install openpyxl
+!{sys.executable} -m pip install pyarrow fastparquet
+
+
+print("Python:", platform.python_version())
+print("Executável:", sys.executable)
+
+try:
+    import factor_analyzer
+    print("factor_analyzer:", factor_analyzer.__version__)
+except Exception as e:
+    print("factor_analyzer não encontrado:", e)
+    
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP,ZeroInflatedPoisson
+# pacote acima para a estimação dos modelos ZINB e ZIP, respectivamente
+from statsmodels.discrete.discrete_model import NegativeBinomial, Poisson
+# pacote anterior para a realização do teste de Vuong
+from scipy import stats # estatística chi2
+from statsmodels.iolib.summary2 import summary_col # comparação entre modelos
+from statstests.tests import overdisp
+from tqdm import tqdm
+from sklearn.model_selection import GroupKFold
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    mean_poisson_deviance
+)
+import matplotlib.pyplot as plt
+
+from pathlib import Path
+
+```
+
+## Eliminação de registros irrecuperáveis
+
+Alguns registros não podemo ser utilizados. Por exemplo, aqueles sem data de nascimento, pois seria impossível estimar a idade da pessoa no momento de falecimento. São eliminados, também os menores de 10 anos de idade, que não fazem parte do estudo. São eliminados os que não têm definição de município, pois serão de pouca utilidade quando o modelo chegar na discriminação de município. É feita a estimativa de preenchimento dos campos.
+
+```{r}
+#| label: descarte
+#| cache: false
+
+library(data.table)
+library(arrow)
+source("../script/Funcoes.R")
+
+obitos <- read_parquet("../data/raw/obitos.parquet")
+obitos_sub <- read_parquet("../data/raw/obitos_sub.parquet")
+
+load("../data/dataset/obitos_st.rda")
+
+  # tabela de descarte
+  descarte <- data.table(
+    original = format(obitos_N,
+                      big.mark = ".",
+                      decimal.mark = ","),
+    
+    SemDataNasc = format(obitos_SemDataNasc,
+                         big.mark = ".",
+                         decimal.mark = ","),
+    
+    MenorDeIdade = format(obitos_MenorDeSemIdade,
+                          big.mark = ".",
+                          decimal.mark = ","),
+    
+    MunicipiosIndefinidos = format(obitos_MunicipiosIndefinidos,
+                                   big.mark = ".",
+                                   decimal.mark = ","),
+    final = format(obitos_sub[,.N],
+                   big.mark = ".",
+                   decimal.mark = ","),
+    Eliminacao = paste0(round(((obitos[,.N]-obitos_sub[,.N])/obitos[,.N])*100,1),"%")
+  )
+  
+  descarte
+  
+paste(
+  round((1-(agressoes_subset[!is.na(sexo)][!is.na(raca)][!is.na(escolaridade)][!is.na(DIFDATA)][,.N]/agressoes_subset[,.N]))*100,2),"% de perda com dados faltantes")
+
+preenchmento <- data.table(
+  variavel = names(obitos),
+  Preench = obitos[,unlist(lapply(.SD, meanfill))]
+)
+
+paste("Apenas",preenchmento[,sum(Preench > 80)],
+"de",ncol(obitos),
+"variáveis possuem mais que 80% de preenchimento")
+```
+
+.
+
+## Apreciação de DIFDATA
+
+DIFDATA contém a diferença em dias entre a ocorrência do óbito e o recebimento da Declaração de Óbito original. Pode ser um proxy para uma miríade de fatores sociais relacionados à ocorrência do óbito. Desde a susceptibilidade pessoal relacionada às condições de vida (ser morador de áreas nobres ou fora do controle do Estado) ou às condições operacionais de governo local e sociedade de execução as etapas administrativas relacionadas à documentação do óbito.
+
+```{r}
+#| label: difdata
+#| warnings: false
+#| echo: false
+#| message: false
+
+agressoes_base <- read_parquet("../data/dataset/agressoes_base.parquet")
+
+
+dunn_test(DIFDATA ~ raca, data = agressoes_base[raca!="Ignorado"])
+
+dunn_test(DIFDATA ~ sexo, data = agressoes_base[sexo!="Ignorado"])
+
+dunn_test(DIFDATA ~ escolaridade, data = agressoes_base[escolaridade!="Ignorado"])
+
+dunn_test(DIFDATA ~ coduf, data = agressoes_base[,coduf:=str_sub(codmun6,end = 2)])
+
+dunn_test(DIFDATA ~ Grupo_desc, data = agressoes_base[Grupo_desc %in% c("Agressões", "Lesões autoprovocadas intencionalmente", "Acidentes","Eventos (fatos) cuja intenção é indeterminada")])
+
+
+```
+
+## Escolha das variaveis para imputação de dados
+
+A escolha das variáveis é resultado da consolidação da literatura, que tem bem estabelecida a relação entre sexo, raça e idade, cidade e causa de óbito. Adicionalmente, o SIM oferece algumas variáveis que podem estar relacionadas entre si.
+
+```{r}
+#| label: matrix_categorias
+#| cache: true
+#| warnings: false
+#| echo: false
+#| message: false
+
+agressoes_subset <- read_parquet("../data/dataset/agressoes_subset.parquet")
+
+setkey(agressoes_subset,id)
+
+preenchimento <- data.table(
+  campo = names(agressoes_subset),
+  Tipo = agressoes_subset[,unlist(lapply(.SD, \(x) class(x)[1]))],
+  Preench = agressoes_subset[,unlist(lapply(.SD, meanfill))]
+)[order(-Preench)]
+
+preenchimento
+fatores <- preenchimento[Tipo=="factor",campo]
+
+
+cramer_matrix <- function(dt, vars) {
+  
+  mat <- matrix(
+    NA_real_,
+    length(vars),
+    length(vars),
+    dimnames = list(vars, vars)
+  )
+  
+  for (i in seq_along(vars)) {
+    for (j in seq_along(vars)) {
+      
+      tab <- table(dt[[vars[i]]], dt[[vars[j]]])
+      mat[i, j] <- DescTools::CramerV(tab)
+    }
+  }
+  
+  mat
+}
+
+mat_associacao <- cramer_matrix(
+  agressoes_subset,
+  fatores
+)
+
+# transformar matriz em formato longo
+mat_long <- as.data.table(as.table(mat_associacao))
+
+setnames(
+  mat_long,
+  c("V1", "V2", "N"),
+  c("Variavel1", "Variavel2", "Associacao")
+)
+
+# heatmap
+ggplot(
+  mat_long,
+  aes(
+    x = Variavel1,
+    y = Variavel2,
+    fill = Associacao
+  )
+) +
+  geom_tile(color = "white") +
+  geom_text(
+    aes(label = sprintf("%.2f", Associacao)),
+    size = 4
+  ) +
+  scale_fill_gradient(
+    low = "white",
+    high = "steelblue",
+    limits = c(0, 1)
+  ) +
+  coord_equal() +
+  labs(
+    x = NULL,
+    y = NULL,
+    fill = "Associação"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(
+      angle = 45,
+      hjust = 1
+    ),
+    panel.grid = element_blank()
+  )
+
+
+
+```
+
+.
+
+```{r}
+#| label: descarte
+#| cache: true
+#| warnings: false
+#| echo: false
+#| message: false
+
+agressoes_subset <- read_parquet("../data/dataset/agressoes_subset.parquet")
+
+
+setDT(agressoes_subset[,tabyl(agg_tipo)])[,percent:=round(percent*100,2)][order(-percent)] |> print()
+```
+
+### Causas externas de morbidade e mortalidade (Capítulo - V01-Y98)
+
+Para esse estudo são utilizadas as classificações do CID
+
+#### Acidentes (V01-X59)
+
+- **V01-V99**: Acidentes de transporte
+- **W00-W19**: Quedas
+- **W20-W49**: Exposição a forças mecânicas inanimadas
+- **W50-W64**: Exposição a forças mecânicas animadas
+- **W65-W74**: Afogamento e submersão acidentais
+- **W75-W84**: Outras ameaças à respiração
+- **W85-W99**: Exposição a corrente elétrica, radiação e extremos de temperatura e pressão
+- **X00-X09**: Exposição à fumaça, fogo e chamas
+- **X10-X19**: Contato com calor e substâncias quentes
+- **X20-X29**: Contato com animais e plantas venenosos
+- **X30-X39**: Exposição a forças da natureza
+- **X40-X49**: Envenenamento acidental e exposição a substâncias nocivas
+- **X50-X57**: Sobrecarga física e outros efeitos ambientais
+- **X58-X59**: Exposição a outros fatores especificados
+
+#### Lesões autoprovocadas (X60-X84)
+
+- **X60-X69**: Envenenamento autoprovocado
+- **X70-X79**: Lesão autoprovocada por outros meios especificados
+- **X80-X84**: Lesão autoprovocada por meios não especificados
+
+#### Agressões (X85-Y09)
+
+- **X85-X90**: Envenenamento por substância
+- **X91-X98**: Uso de objeto contundente ou perfurante
+- **X99-Y09**: Agressões por outros meios especificados
+
+#### Eventos de intenção não determinada (Y10-Y34)
+
+- **Y10-Y19**: Envenenamento
+- **Y20-Y29**: Uso de objeto contundente ou perfurante
+- **Y30-Y34**: Outros meios
+
+### Códigos específicos para agressões
+
+- **X85**: Agressão por envenenamento com drogas, medicamentos e substâncias biológicas
+- **X86**: Agressão por envenenamento com outras substâncias químicas e substâncias nocivas
+- **X87**: Agressão por pesticidas
+- **X88**: Agressão por gases e vapores
+- **X89**: Agressão por substâncias químicas corrosivas
+- **X90**: Agressão por substâncias químicas não especificadas
+- **X91**: Agressão por suspensão (estrangulamento)
+- **X92**: Agressão por afogamento e submersão
+- **X93**: Agressão por disparo de arma de fogo (pistola, revólver, rifle)
+- **X94**: Agressão por disparo de arma de fogo (espingarda)
+- **X95**: Agressão por disparo de outras armas de fogo e não especificadas
+- **X96**: Agressão por explosivos
+- **X97**: Agressão por fumo, fogo e chamas
+- **X98**: Agressão por objeto cortante
+- **X99**: Agressão por objeto contundente
+- **Y00**: Agressão por força corporal (socos, pontapés)
+- **Y01**: Agressão por projeção de objeto arremessado
+- **Y02**: Agressão por empurrão contra objeto (queda)
+- **Y03**: Agressão por projeção de pessoa de lugar elevado
+- **Y04**: Agressão por força física não especificada
+- **Y05**: Agressão sexual por força física
+- **Y06**: Negligência e abandono
+- **Y07**: Outros maus-tratos
+- **Y08**: Agressão por meio não especificado
+- **Y09**: Agressão por meio não especificado (genérico)
+
+## Consolidação
+
+Uma vez consolidadas as bases, os objetos de modelagem contêm as seguintes dimensões.
+
+```{r}
+#| label: consolidacao
+#| message: false
+#| warnings: false
+#| echo: false
+
+bases_e <- readRDS("../data/dataset/bases_e.rds")
+bases_d <- readRDS("../data/dataset/bases_d.rds")
+
+# dimensoes das bases socioeconomicas
+as.data.frame(sapply(bases_e, function(x){
+  data.table(ncol = ncol(x),
+             nrow = nrow(x))
+  })) |> print()
+
+# completude das bases socioeconomicas
+sapply(bases_e, function(x){x[,sapply(.SD,meanfill)]})
+
+
+# dimensoes das bases demograficas
+as.data.frame(sapply(bases_d, function(x){
+  data.table(ncol = ncol(x),
+             nrow = nrow(x))
+})) |> print()
+
+# completude das bases sociodemograficas
+sapply(bases_d, function(x){x[,sapply(.SD,meanfill)]})
+
+```
+
+## Resultados
+
+### Base original do SIM
+
+```{r}
+#| cache: false
+#| fig.width: 10
+#| fig.height: 8.8
+#| label: r_fig_totais
+#| message: false
+#| warnings: false
+#| echo: false
+
+library(data.table)
+library(ggplot2)
+library(patchwork)
+# Introducao
+agressoes_subset <- read_parquet("../data/dataset/agressoes_subset.parquet")
+
+grupocid <- c("Agressões", "Lesões autoprovocadas intencionalmente", "Acidentes","Eventos (fatos) cuja intenção é indeterminada")
+
+crescimento <- agressoes_subset[Grupo_desc %in% grupocid,.N, by = .(Grupo_desc,ano,i_sd)][order(Grupo_desc,i_sd,ano)][,cresc := round(N/.SD[1,N]*100,2), by = .(Grupo_desc,i_sd)]
+
+crescimento_raca <- agressoes_subset[!is.na(raca)][Grupo_desc %in% grupocid,.N, by = .(Grupo_desc,ano,raca)][order(Grupo_desc,raca,ano)][,cresc := round(N/.SD[1,N]*100,2), by = .(Grupo_desc,raca)]
+
+
+id <- ggplot(data=crescimento)+
+  facet_wrap(~Grupo_desc, 
+             ncol =1,
+             scales = "free",
+             labeller = as_labeller(
+               c("Agressões" = "(A) Agressões",
+                 "Eventos (fatos) cuja intenção é indeterminada" = "(B) Intenção indeterminada",
+                 "Lesões autoprovocadas intencionalmente" = "(C) Lesões autoprovocadas")))+
+  geom_line(aes(x = ano,
+                y = cresc,
+                linetype = i_sd))+
+  labs(title = "Crescimento dos óbitos por agressão [2010 - 2023]",
+       x = "Ano",
+       y ="Crescimento (% sobre 2010)",
+       linetype = "Faixa etária")+
+  scale_y_continuous(labels = function(x){format(x, big.mark = ",",decimal.mark=".")})+
+  scale_x_continuous(breaks = seq(from = 2010, to = 2025, by = 3))+
+  theme(axis.text.x = element_text(size=11),
+        strip.background = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        strip.text = element_text(
+        hjust = 0,
+        vjust = 0,
+        face = "bold"))
+
+
+
+raca <- ggplot(data=crescimento_raca)+
+  facet_wrap(~Grupo_desc, 
+             ncol =1,
+             scales = "free",
+             labeller = as_labeller(
+               c("Agressões" = "(A) Agressões",
+                 "Eventos (fatos) cuja intenção é indeterminada" = "(B) Intenção indeterminada",
+                 "Lesões autoprovocadas intencionalmente" = "(C) Lesões autoprovocadas")))+
+  geom_line(aes(x = ano,
+                y = cresc,
+                linetype = raca))+
+  labs(title = "Crescimento dos óbitos por agressão [2010 - 2023]",
+       x = "Ano",
+       y ="Crescimento (% sobre 2010)",
+       linetype = "Raça")+
+  scale_y_continuous(labels = function(x){format(x, big.mark = ",",decimal.mark=".")})+
+  scale_x_continuous(breaks = seq(from = 2010, to = 2025, by = 3))+
+  theme(axis.text.x = element_text(size=11),
+        strip.background = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        strip.text = element_text(
+          hjust = 0,
+          vjust = 0,
+          face = "bold"))
+
+(id+raca)
+
+crescimento
+```
+
+### Tabelas de mortalidade
+
+abaixo a mortalidade por faixa etária, sexo, raça para os três grupos de desfechos e a taxa bruta global de homicídios por 100mil hab/ano.
+
+```{r}
+#| label: mortalidade
+#| message: false
+#| warnings: false
+#| echo: false
+
+agg_d <- read_parquet("../data/dataset/agg_d.parquet")
+rupocid <- c("Agressões", "Lesões autoprovocadas intencionalmente", "Acidentes","Eventos (fatos) cuja intenção é indeterminada")
+
+# por sexo, idade, raca, uf
+popepi1 <- populacao[,.(Pop = sum(Populacao)), by = .(uf, i_sd, sexo, raca)]
+
+agg_d_st1 <- popepi[agg_d[Grupo_desc %in% grupocid,.N, 
+                          by = .(ano, Grupo_desc, uf,i_sd,sexo,raca)
+                  ][,raca := fifelse(is.na(raca), "Ignorado",raca)], on =.(uf,i_sd, sexo, raca)]
+
+tab1 <- agg_d_st1[!is.na(Pop) & N > 9, mort := (N/Pop)*100000]
+
+datatable(tab1[!is.na(mort)][order(uf,Grupo_desc,sexo,raca,i_sd,ano)][,.(ano,uf,Grupo_desc,sexo,raca,"Faixa etária" = i_sd,"mort/100k hab" = round(mort*100,2))])
+
+
+
+
+# por sexo, idade, raca
+popepi2 <- populacao[,.(Pop = sum(Populacao)), by = .(i_sd, sexo, raca)]
+
+agg_d_st2 <- agg_d[Grupo_desc %in% grupocid][!is.na(raca)][, .N, by = .(ano, Grupo_desc,i_sd,sexo,raca)
+][,raca := fifelse(is.na(raca), "Ignorado",raca)][popepi2, Pop := i.Pop, on = .(i_sd, sexo, raca)][raca !="Ignorado"]
+
+tab2 <- agg_d_st2[!is.na(Pop) & N > 9, mort := (N/Pop)*100000]
+
+datatable(tab2[!is.na(mort)][order(Grupo_desc,sexo,raca,i_sd,ano),.(Grupo_desc,ano,sexo,raca,"Faixa etária" = i_sd,"mort/100k hab" = round(mort*100,2))])
+
+
+# por sexo, raca
+popepi3 <- populacao[,.(Pop = sum(Populacao)), by = .(sexo, raca)]
+
+agg_d_st3 <- agg_d[Grupo_desc %in% grupocid][!is.na(raca)][, .N, by = .(ano, CID = Grupo_desc,sexo,raca)
+][,raca := fifelse(is.na(raca), "Ignorado",raca)][popepi3, Pop := i.Pop, on = .(sexo, raca)]
+
+
+tab3 <- agg_d_st3[!is.na(Pop) & N > 9, mort := (N/Pop)*100000]
+
+datatable(tab3[!is.na(mort)][order(CID,sexo,raca,ano),.(CID,ano,sexo,raca,"mort/100k hab" = round(mort*100,2))])
+
+
+ggplot(data = tab3[!is.na(sexo)][!raca %in% c(NA, "Ignorado")])+
+  facet_wrap(raca~CID, 
+             scales = "free", 
+             ncol = 3,
+             labeller = as_labeller(
+               c("Agressões" = "(A) Agressões",
+                 "Eventos (fatos) cuja intenção é indeterminada" = "(B) Intenção indeterminada",
+                 "Lesões autoprovocadas intencionalmente" = "(C) Lesões autoprovocadas",
+                  "Amarela" = "Amarela",
+                  "Branca" = "Branca",
+                  "Indígena" = "Indígena",
+                  "Parda" = "Parda",
+                 "Preta" = "Preta")))+
+  geom_line(aes(x = ano,
+                y = mort,
+                linetype=sexo))+
+  labs(title = "Mortalidade por 100mil hab.",
+       y = "Mortalidade (/100mil hab.)")+
+  theme(axis.text.x = element_text(size=11),
+        strip.background = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(),
+        strip.text = element_text(
+          hjust = 0,
+          vjust = 0,
+          face = "bold"))
+
+
+```
+
+### Modelo Multivariado Populacional (MMP) de mortalidade incorporando fatores socioeconômicos, demográficos e temporais.
+
+```{r}
+#| label: histograma
+
+# distribuição de contagem de óbitos
+# modelo socioeconômico
+
+hist(agg_e$N)
+
+# não se aplica poisson, mas binomial negativa
+# Inflacionado de zeros?
+
+
+```
+
+#### Importação de dados
+
+```{python}
+#| label: preparobase_e
+#| cache: true
+
+import pandas as pd
+from pathlib import Path
+import numpy as np
+
+pasta = Path("../data/dataset/completos")
+
+arquivos = sorted(pasta.glob("*_e.parquet"))
+
+datasets = {
+    arq.stem: pd.read_parquet(arq)
+    for arq in arquivos
+}
+
+datasets.keys()
+{nome: df.shape for nome, df in datasets.items()}
+
+for nome, df in datasets.items():
+    df["data"] = pd.to_datetime(
+        dict(
+            year=df["ano"].astype(int),
+            month=df["mes"].astype(int),
+            day=1
+        )
+    )
+
+# escluir colunas
+col_excluir = ["estado","coduf","uf"]
+datasets = {
+  nome: df.drop(columns = col_excluir)
+  for nome, df in datasets.items()
+}
+
+# renomeia colunas
+datasets = {
+nome: df.rename(columns={
+"Grupo_desc": "grupo_cid",
+"i_e": "idade",
+"Estado": "estado",
+"Populacao": "populacao",
+"N": "obitos",
+"Desemprego": "desemprego"
+})
+for nome, df in datasets.items()
+}
+    
+# cria variaveis
+for nome, df in datasets.items():
+  df["tempo"] = (
+  (df["data"].dt.year - df["data"].dt.year.min()) * 12
+  + (df["data"].dt.month - df["data"].dt.month.min())
+)
+
+for nome, df in datasets.items():
+ df["mes_cat"] = df["mes"].astype("category")
+
+
+        
+# preparo da base
+def preparar_base(df):
+
+ df = df.copy()
+ 
+ categoricas = [
+     "estado",
+     "grupo_cid",
+     "raca",
+     "sexo",
+     "idade"
+ ]
+ 
+ for col in categoricas:
+    df[col] = df[col].astype("category")
+
+ numericas = [
+     "obitos",
+     "populacao",
+     "gini",
+     "idh",
+     "cobab",
+     "desemprego",
+     "tempo"
+ ]
+ 
+ for col in numericas:
+     df[col] = pd.to_numeric(
+         df[col],
+         errors="coerce"
+     )
+ 
+ df["data"] = pd.to_datetime(
+     df["data"],
+     errors="coerce"
+ )
+ 
+ df = df[
+     (df["populacao"] > 0) &
+     (df["obitos"] >= 0)
+ ].copy()
+ 
+ df["log_populacao"] = np.log(
+     df["populacao"]
+ )
+ 
+ df["grupo_cv"] = (
+     df["estado"].astype(str)
+     + "_"
+     + df["ano"].astype(str)
+ )
+ 
+ return df
+
+
+# remove categorias não usadas
+for nome, dados in datasets.items():
+    for col in dados.select_dtypes(include="category").columns:
+        dados[col] = dados[col].cat.remove_unused_categories()
+        
+
+# for nome, dados in datasets.items():
+#     print("\n", nome)
+#     for col in dados.select_dtypes(include="category").columns:
+#         print(f"{col}: {list(dados[col].cat.categories)}")
+        
+        
+for nome, dados in datasets.items():
+    print(nome, "→ zeros:", (dados["obitos"] == 0).sum())
+    
+    
+for nome, dados in datasets.items():
+    print(
+        nome,
+        "n =", len(dados),
+        "| mínimo =", dados["obitos"].min(),
+        "| máximo =", dados["obitos"].max()
+    )
+```
+
+Construção dos modelos
+
+##### Fórmulas para os modelos
+
+```{python}
+#| label: modelos_binom
+#| cache: true
+
+# M0 — características demográficas
+# idade
+# raça
+# sexo
+formula_M0 = """
+ obitos ~
+ C(idade) +
+ C(raca) +
+ C(sexo)
+ """
+
+ # M1 — + tempo
+ # M0
+ # + ano
+ # + mês
+formula_M1 = """
+ obitos ~
+ C(idade) +
+ C(raca) +
+ C(sexo) +
+ C(ano) +
+ C(mes_cat)
+ """
+
+# M2 — + socioeconômicas
+# M0
+# + Gini
+# + IDH
+# + Cobertura AB
+# + desemprego
+formula_M2 = """
+ obitos ~
+ C(idade) +
+ C(raca) +
+ C(sexo) +
+ gini +
+ idh +
+ cobab +
+ desemprego
+ """
+ 
+ 
+ # M3 — modelo completo
+ # M0
+ # + tempo
+ # + socioeconômicas
+formula_M3 = """
+ obitos ~
+ C(idade) +
+ C(raca) +
+ C(sexo) +
+ C(ano) +
+ C(mes_cat) +
+ gini +
+ idh +
+ cobab +
+ desemprego
+ """
+
+# M4 — modelo completo + interações (sexo/idade)
+# sexo × Gini
+# idade × Gini
+# sexo × desemprego
+# idade × desemprego
+formula_M4 = """
+ obitos ~
+ C(idade) +
+ C(raca) +
+ C(sexo) +
+ C(ano) +
+ C(mes_cat) +
+ gini +
+ idh +
+ cobab +
+ desemprego +
+ C(sexo):gini +
+ C(idade):gini +
+ C(sexo):desemprego +
+ C(idade):desemprego
+ """
+  
+# M5 — modelo completo + interações (sexo/raca)
+# sexo × Gini
+# idade × Gini
+# sexo × desemprego
+# idade × desemprego
+formula_M5 = """
+obitos ~
+C(idade) +
+C(raca) +
+C(sexo) +
+C(ano) +
+C(mes_cat) +
+gini +
+idh +
+cobab +
+desemprego +
+C(sexo):gini +
+C(raca):gini +
+C(sexo):desemprego +
+C(raca):desemprego
+"""
+
+
+```
+
+###### Ajuste modelo Poisoon
+
+```{python}
+#| label: modelos_poisson_ajuste
+#| cache: true
+
+df = preparar_base(df)
+
+def ajustar_ps(formula, data):
+
+    modelo = smf.glm(
+        formula=formula,
+        data=data,
+        family=sm.families.Poisson(),
+        offset=data["log_populacao"]
+    )
+
+    resultado = modelo.fit()
+
+    return resultado
+
+
+# eliminar desempregos zerados
+df_modelos = df.dropna(
+    subset=["desemprego"]
+)
+
+
+modelos_full_ps = {}
+
+modelos_full_ps["M0"] = ajustar_ps(formula_M0, df)
+modelos_full_ps["M1"] = ajustar_ps(formula_M1, df)
+modelos_full_ps["M2"] = ajustar_ps(formula_M2, df)
+modelos_full_ps["M3"] = ajustar_ps(formula_M3, df)
+modelos_full_ps["M4"] = ajustar_ps(formula_M4, df)
+modelos_full_ps["M5"] = ajustar_ps(formula_M5, df)
+
+modelos_dropna_ps = {}
+
+modelos_dropna_ps["M0"] = ajustar_ps(formula_M0, df_modelos)
+modelos_dropna_ps["M1"] = ajustar_ps(formula_M1, df_modelos)
+modelos_dropna_ps["M2"] = ajustar_ps(formula_M2, df_modelos)
+modelos_dropna_ps["M3"] = ajustar_ps(formula_M3, df_modelos)
+modelos_dropna_ps["M4"] = ajustar_ps(formula_M4, df_modelos)
+modelos_dropna_ps["M5"] = ajustar_ps(formula_M5, df_modelos)
+
+
+# comparar os modelos_full_ps
+for nome, modelo in modelos_full_ps.items():
+    print(
+      "modelos_full",
+      nome,
+      "n =", modelo.nobs,
+      "AIC =", modelo.aic,
+      "LL =", modelo.llf
+    )
+
+# comparar os modelos_dropna_ps
+for nome, modelo in modelos_dropna_ps.items():
+    print(
+      "modelos_dropna",
+      nome,
+      "n =", modelo.nobs,
+      "AIC =", modelo.aic,
+      "LL =", modelo.llf
+      )
+
+
+#print(inspect.getsource(overdisp))
+
+##### verificacao de sobredispersao
+## tabelas completas
+for nome, modelo in modelos_full_ps.items():
+    print(f"\n===== {nome} =====")
+    overdisp(modelo, df)
+
+## sumario
+for nome, modelo in modelos_full_ps.items():
+    print(
+      "Modelos_full",
+      nome,
+      "Obs[N] =",modelo.nobs,
+      "AIC =", round(modelo.aic, 2),
+      "BIC =", round(modelo.bic, 2),
+      "LL =", round(modelo.llf, 2)
+      )
+
+
+#### tabelas completas
+for nome, modelo in modelos_dropna_ps.items():
+    print(f"\n===== {nome} =====")
+    overdisp(modelo, df_modelos)
+
+## sumario    
+for nome, modelo in modelos_dropna_ps.items():
+    print(
+      "Modelos_dropna",
+      nome,
+      "Obs[N] =",modelo.nobs,
+      "AIC =", round(modelo.aic, 2),
+      "BIC =", round(modelo.bic, 2),
+      "LL =", round(modelo.bic_llf, 2)
+      )
+
+
+```
+
+###### Ajuste modelo Binomial
+
+```{python}
+#| label: modelos_binom_ajuste
+#| cache: true
+
+def ajustar_nb(formula, data):
+
+    modelo = smf.glm(
+        formula=formula,
+        data=data,
+        family=sm.families.NegativeBinomial(),
+        offset=data["log_populacao"]
+    )
+
+    resultado = modelo.fit()
+
+    return resultado
+
+
+# eliminar desempregos zerados
+df_modelos = df.dropna(
+    subset=["desemprego"]
+)
+
+
+modelos_full_nb = {}
+
+modelos_full_nb["M0"] = ajustar_nb(formula_M0, df)
+modelos_full_nb["M1"] = ajustar_nb(formula_M1, df)
+modelos_full_nb["M2"] = ajustar_nb(formula_M2, df)
+modelos_full_nb["M3"] = ajustar_nb(formula_M3, df)
+modelos_full_nb["M4"] = ajustar_nb(formula_M4, df)
+modelos_full_nb["M5"] = ajustar_nb(formula_M5, df)
+
+modelos_dropna_nb = {}
+
+modelos_dropna_nb"M0"] = ajustar_nb(formula_M0, df_modelos)
+modelos_dropna_nb"M1"] = ajustar_nb(formula_M1, df_modelos)
+modelos_dropna_nb"M2"] = ajustar_nb(formula_M2, df_modelos)
+modelos_dropna_nb"M3"] = ajustar_nb(formula_M3, df_modelos)
+modelos_dropna_nb"M4"] = ajustar_nb(formula_M4, df_modelos)
+modelos_dropna_nb"M5"] = ajustar_nb(formula_M5, df_modelos)
+
+
+# comparar os modelos_full
+for nome, modelo in modelos_full_nb.items():
+    print(
+      "modelos_full",
+      nome,
+      "n =", modelo.nobs,
+      "AIC =", modelo.aic,
+      "LL =", modelo.llf
+    )
+
+# comparar os modelos_dropna
+for nome, modelo in modelos_dropna_nb.items():
+    print(
+      "modelos_dropna",
+      nome,
+      "n =", modelo.nobs,
+      "AIC =", modelo.aic,
+      "LL =", modelo.llf
+      )
+
+
+# print(inspect.getsource(overdisp))
+
+##### verificacao de sobredispersao
+## tabelas completas
+for nome, modelo in modelos_full_nb.items():
+    print(f"\n===== {nome} =====")
+    overdisp(modelo, df)
+
+## sumario
+for nome, modelo in modelos_full_nb.items():
+    print(
+      "Modelos_full",
+      nome,
+      "Obs[N] =",modelo.nobs,
+      "AIC =", round(modelo.aic, 2),
+      "BIC =", round(modelo.bic, 2),
+      "LL =", round(modelo.llf, 2)
+      )
+
+
+#### tabelas completas
+for nome, modelo in modelos_dropna.items():
+    print(f"\n===== {nome} =====")
+    overdisp(modelo, df_modelos)
+
+## sumario    
+for nome, modelo in modelos_dropna.items():
+    print(
+      "Modelos_dropna",
+      nome,
+      "Obs[N] =",modelo.nobs,
+      "AIC =", round(modelo.aic, 2),
+      "BIC =", round(modelo.bic, 2),
+      "LL =", round(modelo.bic_llf, 2)
+      )
+
+
+```
+
+##### Parametros dos modelos
+
+```{python}
+#| label: nb_params
+#| cache: true
+
+for nome, modelo in modelos_full.items():
+    print(
+        nome,
+        "n =", modelo.nobs,
+        "AIC =", modelo.aic,
+        "LL =", modelo.llf
+    )
+
+for nome, modelo in modelos_dropna.items():
+    print(
+        nome,
+        "n =", modelo.nobs,
+        "AIC =", modelo.aic,
+        "LL =", modelo.llf
+    )
+    
+```
+
+### Modelo ZINB (inflacionado de zeros)
+
+```{python}
+#| label: zinb_dt
+#| cache: true
+
+offset = np.log(df_modelos["populacao"])
+
+X = pd.get_dummies(
+    df_modelos[
+        [
+            "idh",
+            "desemprego",
+            "cobab",
+            "estado",
+            "sexo",
+            "raca",
+            "idade"
+        ]
+    ],
+    drop_first=True,
+    dtype=float
+)
+
+
+X = sm.add_constant(X)
+
+X_infl = sm.add_constant(
+    df_modelos[["idh", "desemprego", "cobab"]]
+)
+
+modelo_zinb = ZeroInflatedNegativeBinomialP(
+    endog=df_modelos["obitos"],
+    exog=X,
+    exog_infl=X_infl,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=1000
+)
+```
+
+ajustes no ZINB
+
+```{python}
+#| label: zinb_retira_racaIgn
+#| cache: true
+
+print("X:", X.shape)
+print("rank X:", np.linalg.matrix_rank(X))
+
+print(
+    "Colunas constantes:",
+    X.columns[X.nunique() <= 1].tolist()
+)
+
+```
+
+```{python}
+#| label: zinb_corr
+#| cache: true
+
+# Identificar quais colunas podem ser removidas sem reduzir o posto
+
+rank_full = np.linalg.matrix_rank(X)
+
+for col in X.columns:
+    rank_reduzido = np.linalg.matrix_rank(
+        X.drop(columns=[col])
+    )
+
+    if rank_reduzido == rank_full:
+        print("Coluna redundante:", col)
+```
+
+```{python}
+#| label: teste_idh
+#| cache: true
+
+df_modelos.groupby("estado")["idh"].nunique().sort_values()
+
+
+print(
+    df_modelos.groupby("estado")["idh"].nunique().max()
+)
+
+print(
+    df_modelos.groupby("estado")["idh"].nunique().sort_values()
+)
+```
+
+```{python}
+#| label: retira_racaIgn
+#| cache: true
+
+print("X:", X.shape)
+print("rank X:", np.linalg.matrix_rank(X))
+
+print("Constantes em X:")
+print(X.columns[X.nunique() <= 1].tolist())
+
+print("X_infl:", X_infl.shape)
+print("rank X_infl:", np.linalg.matrix_rank(X_infl))
+
+print("Constantes em X_infl:")
+print(X_infl.columns[X_infl.nunique() <= 1].tolist())
+```
+
+```{python}
+#| label: ZINB
+#| cache: true
+
+X = pd.get_dummies(
+    df_modelos[
+        [
+            "desemprego",
+            "cobab",
+            "estado",
+            "sexo",
+            "raca",
+            "idade"
+        ]
+    ],
+    drop_first=True,
+    dtype=float
+)
+
+X = X.drop(columns=["raca_Ignorado"])
+
+X = sm.add_constant(X)
+
+X_infl = sm.add_constant(
+    df_modelos[["desemprego", "cobab"]]
+)
+
+modelo_zinb = ZeroInflatedNegativeBinomialP(
+    endog=df_modelos["obitos"],
+    exog=X,
+    exog_infl=X_infl,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=1000
+)
+
+modelo_zinb.summary()
+```
+
+```{python}
+#| label: ZIP
+#| cache: true
+
+from statsmodels.discrete.count_model import ZeroInflatedPoisson
+
+modelo_zip = ZeroInflatedPoisson(
+    endog=df_modelos["obitos"],
+    exog=X,
+    exog_infl=X_infl,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=1000
+)
+
+print(modelo_zip.summary())
+
+modelo_zip.nobs
+modelo_zip.aic
+modelo_zip.bic
+modelo_zip.llf
+
+```
+
+s
+
+```{python}
+#| lable: zinbmin
+
+import numpy as np
+import statsmodels.api as sm
+from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP
+
+y = df_modelos["obitos"].astype(float)
+
+offset = np.log(df_modelos["populacao"].astype(float))
+
+X_min = np.ones((len(df_modelos), 1))
+X_infl_min = np.ones((len(df_modelos), 1))
+
+modelo_zinb_min = ZeroInflatedNegativeBinomialP(
+    endog=y,
+    exog=X_min,
+    exog_infl=X_infl_min,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=500,
+    disp=True
+)
+
+print(modelo_zinb_min.summary())
+
+modelo_zinb_min.nobs
+modelo_zinb_min.aic
+modelo_zinb_min.bic
+modelo_zinb_min.llf
+
+print(df_modelos["obitos"].describe())
+print(df_modelos["obitos"].isna().sum())
+
+print(df_modelos["populacao"].describe())
+print(df_modelos["populacao"].isna().sum())
+print((df_modelos["populacao"] <= 0).sum())
+
+print("Zeros:", (y == 0).sum())
+print("Proporção de zeros:", (y == 0).mean())
+
+print("Offset:")
+print(offset.describe())
+print("Inf:", np.isinf(offset).sum())
+print("NaN:", np.isnan(offset).sum())
+```
+
+A adição de desemprego e Cobertura de Atenção Básica não foi possível. A estrutura do dataset precisa ser modificada para fazer o ajuste adequado.
+
+```{python}
+#| lable: zinbmin_DEsemCobab
+
+
+# Inflação somente pelo intercepto
+X_infl_simples = np.ones((len(df_modelos), 1))
+
+# ZINB com desemprego + cobab
+X_zinb_1 = sm.add_constant(
+    pd.get_dummies(
+        df_modelos[["desemprego", "cobab"]],
+        drop_first=True,
+        dtype=float
+    )
+)
+
+modelo_zinb_1 = ZeroInflatedNegativeBinomialP(
+    endog=y,
+    exog=X_zinb_1,
+    exog_infl=X_infl_simples,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=500,
+    disp=True
+)
+
+print(modelo_zinb_1.summary())
+```
+
+O mesmo ocorre para as variáveis categóricas sexo e faixa etária.
+
+```{python}
+#| lable: zinbmin_sexIdRc
+
+
+X_zinb_4 = sm.add_constant(
+    pd.get_dummies(
+        df_modelos[
+            [ "sexo", "raca", "idade"]
+        ],
+        drop_first=True,
+        dtype=float
+    )
+)
+
+X_zinb_4 = X_zinb_4.drop(
+    columns=["raca_Ignorado"],
+    errors="ignore"
+)
+
+modelo_zinb_4 = ZeroInflatedNegativeBinomialP(
+    endog=y,
+    exog=X_zinb_4,
+    exog_infl=X_infl_simples,
+    offset=offset,
+    inflation="logit"
+).fit(
+    method="bfgs",
+    maxiter=500,
+    disp=True
+)
+
+print(modelo_zinb_4.summary())
+
+```
+
+### Modelos de dados imputados de Rubin
+
+```{python}
+#| label: getdataimput
+#| cache: true
+
+
+pasta = Path("../data/dataset/completos/")
+
+arquivos = sorted(pasta.glob("imp_*_e.parquet"))
+
+print(f"Número de bases encontradas: {len(arquivos)}")
+
+bases_imp = [
+    pd.read_parquet(arquivo)
+    for arquivo in arquivos
+]
+
+for i, df in enumerate(bases_imp, start=1):
+    print(f"Imputação {i}: {df.shape}")
+
+
+categoricas = [
+    "uf",
+    "Grupo_desc",
+    "raca",
+    "sexo",
+    "i_e"
+]
+
+for df in bases_imp:
+    for col in categoricas:
+        df[col] = df[col].astype("category")
+        
+for df in bases_imp:
+    df["log_populacao"] = np.log(df["Populacao"])
+    
+
+for df in bases_imp:
+    df["grupo_cid"] =  df["Grupo_desc"] 
+    df["idade"] =  df["i_e"] 
+    df["estado"] =  df["Estado"] 
+    df["populacao"] =  df["Populacao"] 
+    df["obitos"] =  df["N"] 
+    df["desemprego"] =  df["Desemprego"] 
+  
+  
+for df in bases_imp:
+ df["mes_cat"] = df["mes"].astype("category")
+
+
+```
+
+```{python}
+#| label: nb_imput
+#| cache: true
+
+# M5
+formula = """
+ obitos ~  C(idade) +  C(raca) +  C(sexo) +  C(ano) +  C(mes_cat) +  gini +  idh + cobab +  desemprego +  C(sexo):gini +  C(raca):gini +  C(sexo):desemprego +  C(raca):desemprego
+"""
+
+# modelo BN
+def ajustar_nb(formula, data):
+
+    modelo = smf.glm(
+        formula=formula,
+        data=data,
+        family=sm.families.NegativeBinomial(),
+        offset=data["log_populacao"],
+        eval_env=-1
+    )
+
+    return modelo.fit()
+
+    
+  
+# rodar modelo
+resultados_nb = []
+
+for i, dfimp in enumerate(bases_imp, start=1):
+
+    print(f"Ajustando imputação {i}/10...")
+
+    resultado = ajustar_nb(
+        formula=formula,
+        data=dfimp
+    )
+
+    resultados_nb.append(resultado)
+print("Concluído.")
+
+
+vars_modelo = [
+    "obitos", "idade", "raca", "sexo", "ano", "mes_cat",
+    "gini", "idh", "cobab", "desemprego", "log_populacao"
+]
+
+
+for i, resultado in enumerate(resultados_nb, start=1):
+
+    print(f"\n===== IMPUTAÇÃO {i} =====")
+
+    print(resultado.summary())
+    
+    
+## sumario
+medidas_10 = pd.DataFrame([
+    {
+        "Imputação": i,
+        "N": m.nobs,
+        "AIC": m.aic,
+        "BIC": m.bic,
+        "LL": m.llf
+    }
+    for i, m in enumerate(resultados_nb, start=1)
+])
+
+medidas_10.round(2)
+```
+
+```{python}
+#| label: imputresult
+#| cache: true
+
+coeficientes = pd.DataFrame({
+    f"imp_{i}": resultado.params
+    for i, resultado in enumerate(resultados_nb, start=1)
+})
+
+coeficientes
+
+
+tabelas = []
+
+for i, resultado in enumerate(resultados_nb, start=1):
+
+    tabela = pd.DataFrame({
+        "variavel": resultado.params.index,
+        "coef": resultado.params.values,
+        "se": resultado.bse.values,
+        "p": resultado.pvalues.values,
+        "imputacao": i
+    })
+
+    tabelas.append(tabela)
+
+resultados_long = pd.concat(
+    tabelas,
+    ignore_index=True
+)
+
+resultados_long
+```
+
+```{python}
+#| label: rubin
+#| cache: true
+
+def pool_rubin(resultados):
+
+    m = len(resultados)
+
+    # matriz de coeficientes
+    betas = pd.DataFrame({
+        i: resultado.params
+        for i, resultado in enumerate(resultados)
+    })
+
+    # erros-padrão
+    ses = pd.DataFrame({
+        i: resultado.bse
+        for i, resultado in enumerate(resultados)
+    })
+
+    # estimativa média
+    beta_bar = betas.mean(axis=1)
+
+    # variância dentro das imputações
+    U_bar = (ses ** 2).mean(axis=1)
+
+    # variância entre imputações
+    B = betas.var(axis=1, ddof=1)
+
+    # variância total
+    T = U_bar + (1 + 1/m) * B
+
+    # erro-padrão combinado
+    SE = np.sqrt(T)
+
+    # estatística t
+    t = beta_bar / SE
+
+    # graus de liberdade de Rubin
+    df_old = (m - 1) * (
+        1 + U_bar / ((1 + 1/m) * B)
+    ) ** 2
+
+    # p-valor
+    from scipy import stats
+
+    p = 2 * stats.t.sf(
+        np.abs(t),
+        df=df_old
+    )
+
+    # IC 95%
+    crit = stats.t.ppf(
+        0.975,
+        df=df_old
+    )
+
+    IC_low = beta_bar - crit * SE
+    IC_high = beta_bar + crit * SE
+
+    resultado_pool = pd.DataFrame({
+        "coef": beta_bar,
+        "SE": SE,
+        "df": df_old,
+        "p": p,
+        "IC95_low": IC_low,
+        "IC95_high": IC_high
+    })
+
+    return resultado_pool
+
+
+# COmbinado de Rubin
+resultado_pool = pool_rubin(resultados_nb)
+resultado_pool
+
+resultado_pool["IRR"] = np.exp(resultado_pool["coef"])
+
+resultado_pool["IRR_IC95_low"] = np.exp(
+    resultado_pool["IC95_low"]
+)
+
+resultado_pool["IRR_IC95_high"] = np.exp(
+    resultado_pool["IC95_high"]
+)
+
+resultado_pool[
+    [
+        "coef",
+        "SE",
+        "IRR",
+        "IRR_IC95_low",
+        "IRR_IC95_high",
+        "p"
+    ]
+]
+```
+
+```{python}
+#|label: rubin_summario
+#|cache: true
+
+tabelas = []
+
+for i, resultado in enumerate(resultados_nb, start=1):
+    tabela = pd.DataFrame({
+        "variavel": resultado.params.index,
+        f"coef_imp_{i}": resultado.params.values,
+        f"SE_imp_{i}": resultado.bse.values,
+        f"p_imp_{i}": resultado.pvalues.values
+    })
+    tabelas.append(tabela.set_index("variavel"))
+
+sumario_10 = pd.concat(tabelas, axis=1)
+
+sumario_10
+
+
+sumario_final = resultado_pool[
+    ["coef", "SE", "IRR", "IRR_IC95_low", "IRR_IC95_high", "p"]
+].copy()
+
+sumario_final
+
+
+## sumario
+for nome, modelo in modelos_full_nb.items():
+    print(
+      "Modelos_full",
+      nome,
+      "Obs[N] =",modelo.nobs,
+      "AIC =", round(modelo.aic, 2),
+      "BIC =", round(modelo.bic, 2),
+      "LL =", round(modelo.llf, 2)
+      )
+
+
+
+
+resultado_pool.to_csv(
+    "../data/resultado/pool_nb.csv",
+    index=True,
+    encoding="utf-8-sig"
+)
+```

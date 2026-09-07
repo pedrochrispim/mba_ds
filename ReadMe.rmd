@@ -1,0 +1,287 @@
+---
+title: "README — Modelagem e Análise de Mortalidade no Brasil"
+output: html_notebook
+---
+
+# Modelagem e Análise de Mortalidade no Brasil
+
+## Trabalho de Conclusão de Curso em Data Science/USPEsalq
+
+Este repositório contém os códigos, procedimentos de processamento de dados, análises estatísticas e modelos desenvolvidos no âmbito do Trabalho de Conclusão de Curso (TCC):
+
+> **Modelagem multivariada e imputação de dados para identificação de fatores associados aos óbitos violentos nacionais**
+
+O objetivo do projeto é realizar a análise e modelagem de óbitos por argessão (agressão por terceiros, auto-infligidas, acidentes e cuasas indeterminadas), utilizando dados públicos demortalidade e outras fontes, também públicas, descritas neste repositório.
+
+A análise foi desenvolvida utilizando **R**, **Python** e **Quarto**.
+
+------------------------------------------------------------------------
+
+## Objetivos
+
+O projeto tem como objetivos:
+
+- Realizar a importação e integração das bases de dados utilizadas no estudo;
+- Executar o processo de *data wrangling*, limpeza e preparação dos dados;
+- Construir os *datasets* utilizados nas análises;
+- Realizar análises descritivas;
+- Estimar e comparar modelos estatísticos;
+- Avaliar o ajuste e o desempenho dos modelos;
+- Produzir tabelas e figuras utilizadas no TCC;
+- Permitir a reprodução das análises apresentadas no trabalho.
+
+------------------------------------------------------------------------
+
+# Estrutura do repositório
+
+``` text
+TCC-modelos-mortalidade/
+│
+├── ReadMe.Rmd
+├── CITATION.cff
+├── .gitignore
+│
+|
+|__ script/
+|   |__ 01_Importacao.R
+|   |__ 01_00_ImportaDBC_ConverteCSV.R (para importar por SQL)
+|   |__ 01_01_Importacao.sql (caso use SQL para consolidar os dados)
+|   |__ 02_LimpezaWrangling.R
+|   |__ 02-01_Imputacao.R
+|   |__ 02-02_Consolidacao.R
+|   |__ Funcoes.R
+|   |__ tcc.qmd (Resumo de todo o processo)
+|
+├── data/
+└---|── ReadMe_dados.md
+│   ├── raw/
+│   ├── dataset/
+│   ├── dataset/completos
+│   ├── imputados/
+│   ├── imputados/completos
+│   ├── resultado/
+│   
+```
+
+## Arquivos principais
+
+### Scripts
+
+Os scripts de importação dos dados, limpeza e organização (*wrangling*) estão no diretório Script. O trabalho foi desenvolvido inteiramente em R e Python por questão de comodidade. Os scripts foram rodados em um computador com processador M4Pro e 48GB de RAM. O carregamento e organização dos dados integrais de óbitos do datasus podem ser custosos em processadores menores e computadores com menos disponibilidade de RAM, Por essa razão, é fornecido script em SQL (DuckDB) para a etapa de carregamento das bases e seleção de subconjunto a ser analisado posteriormente. Os arquivos são:
+
+- 01_00_ImportaDBC_ConverteCSV.R
+- 01_Importacao.R
+- 01-01_Importacao.sql
+- 01-02_ImportaDBC_ConverteCSV.R
+- 02_LimpezaWrangling.R
+- 02-01_Imputacao.R
+- 02-02_Consolidacao.R
+- 03_tcc.qmd
+
+### `03_TCC.qmd`
+
+Documento principal da análise.
+
+Este arquivo contém os scripts para ajustes dos modelos.
+
+------------------------------------------------------------------------
+
+## Diretório `data/`
+
+O diretório `data/` é dividido em três níveis:
+
+### `data/raw/`
+
+Deve conteros dados brutos, como os arquivos .DBC do datasus. Não diponilizei por serem arquivos públicos, osscripts conterem indicações sobre onde podem ser obtidos (o link exato muda com alguma freqüêcia) e os principais (os arquivos de mortalidade) podem serm baixados diretamente do site do DATASUS com script 01_importacao.R.
+
+Os dados brutos devem permanecer, sem alterações.
+
+### `data/imputados/`
+
+Contém dados intermediários produzidos durante o processo de imputação de dados, segundo a técnica de Rubin. O dataset original utilizado para imputação permanece do diretório raw.
+
+Exemplos:
+
+- bases após limpeza, organização e filtragem de campos;
+
+- dados com variáveis padronizadas;
+
+### `data/dataset/`
+
+Contém os dados utilizados para a análise e modelagem.
+
+### `data/dataset/completos`
+
+Contém um acopia do dataset com dados imputados que é utilizado para as modelagens;
+
+------------------------------------------------------------------------
+
+# Dados e fontes
+
+As fontes de dados utilizadas neste estudo incluem, conforme aplicável:
+
+- Sistema de Informações sobre Mortalidade (SIM/DATASUS);
+- Instituto Brasileiro de Geografia e Estatística (IBGE);
+- AtlasBrasil
+
+Os dados obtidos de fontes externas **não são automaticamente cobertos pela licença deste repositório**.
+
+Cada conjunto de dados permanece sujeito aos respectivos:
+
+- termos de utilização;
+- condições de acesso;
+- direitos dos fornecedores ou órgãos responsáveis.
+
+Quando necessário, os arquivos originais não são disponibilizados diretamente no repositório. As instruções para sua obtenção devem ser apresentadas na documentação correspondente.
+
+------------------------------------------------------------------------
+
+# Como reproduzir a análise
+
+## 0. Nota sobre Hardware
+
+A maior parte do projeto pode ser executado em computadores relativamente comuns hoje em dia (meados de 2026) equivalentes a processadores pentium i5 11ª geração ou superior, com 16GB de RAM. Entretanto, a fase inicial de preparo da base de dados (data wrangling e limpeza) consome muita memória por causa do tamanho das bases do DATASUS e pode ser difícil rodar essa parte com essa configuração base. Recomenda-se utilizar SQL (sugestão não testada em 01_1_Importacao.sql) ou outra configuração mais robusta no preparo do dataset. O projeto foi inteiramente executado em um processador M4 Pro com 48GB de RAM, rodando R e Python. Foi utilizada a IDE RStudio.
+
+## 1. Clonar o repositório
+
+``` bash
+git clone git@github.com:pedrochrispim/mba_ds.git
+```
+
+## 2. Obter os dados
+
+Consulte os arquivos de documentação localizados em:
+
+``` text
+data/
+```
+
+Os dados que não estiverem presentes no repositório deverão ser obtidos diretamente das fontes indicadas.
+
+Após o download, os arquivos deverão ser colocados na estrutura de diretórios especificada pela documentação.
+
+## 3. Configurar o ambiente
+
+Instale:
+
+- R;
+- Python;
+- Quarto;
+- os pacotes e bibliotecas necessários:
+  - R (*read.dbc*, *data.table*, *ggplot2*, *patchwork*, *mice*, *rstatix*, *zoo*, *arrow* e *stringr*)
+  - Python (*pandas*, *NumPy*, *factor_analyzer*, *statsmodels*, *Pingouin*, *seaborn* e *scikit-learn*)
+
+As versões recomendadas deverão ser informadas na documentação de reprodutibilidade.
+
+## 4. Executar a análise
+
+A análise principal está organizada no arquivo:
+
+``` text
+TCC.qmd
+```
+
+A execução deverá seguir a sequência definida no próprio documento.
+
+O fluxo geral é:
+
+``` text
+Dados brutos
+     ↓
+Importação
+     ↓
+Limpeza e data wrangling
+     ↓
+Imputação
+     ↓
+Consolidação dos Datasets analíticos
+     ↓
+Análise descritiva
+     ↓
+Modelagem
+     ↓
+Avaliação
+```
+
+------------------------------------------------------------------------
+
+# Reprodutibilidade
+
+Este projeto busca permitir que outros pesquisadores possam compreender e reproduzir os procedimentos analíticos utilizados.
+
+Entretanto, a reprodução completa dos resultados depende de:
+
+- condições de acesso às bases utilizadas.
+- manutenção das fontes externas;
+- versões dos programas e bibliotecas;
+
+Pequenas diferenças entre versões de software e atualização das bases de dados secundários podem resultar em diferenças numéricas nos resultados.
+
+------------------------------------------------------------------------
+
+# Licença do código
+
+O **código original** desenvolvido para este projeto está disponibilizado sob a **MIT License**.
+
+Isso inclui, conforme aplicável:
+
+- código R;
+- código Python;
+- scripts;
+- funções;
+- procedimentos computacionais;
+- código presente nos documentos Quarto, na medida em que seja código original do autor.
+
+A licença MIT permite que terceiros utilizem, copiem, modifiquem, integrem e redistribuam o código, inclusive para fins comerciais, desde que mantenham o aviso de copyright e os termos da licença.
+
+## Importante
+
+A licença MIT aplica-se ao **código original deste repositório** e não transfere direitos sobre:
+
+- dados obtidos de terceiros;
+- bases de dados públicas sujeitas a termos específicos;
+- marcas;
+- conteúdo pertencente a terceiros;
+- materiais protegidos por direitos autorais de outros autores.
+
+Esses materiais permanecem sujeitos às respectivas condições de utilização.
+
+------------------------------------------------------------------------
+
+# Citação
+
+Se este código contribuir para sua pesquisa, considere citar o repositório.
+
+As informações de citação estão disponíveis no arquivo:
+
+``` text
+CITATION.cff
+```
+
+Quando disponível, uma versão específica do projeto poderá ser arquivada em um repositório de preservação científica com identificador persistente (DOI).
+
+Para trabalhos acadêmicos ou científicos que utilizem substancialmente os métodos, resultados ou código deste projeto, recomenda-se também a devida referência ao trabalho acadêmico correspondente.
+
+------------------------------------------------------------------------
+
+# Uso de código de terceiros
+
+Bibliotecas, pacotes e códigos de terceiros utilizados neste projeto permanecem sujeitos às suas próprias licenças.
+
+A licença MIT deste repositório não altera ou substitui as condições de licença desses componentes.
+
+------------------------------------------------------------------------
+
+# Autor
+
+**Pedro Chrispim**
+
+Trabalho de Conclusão de Curso — **MBA em Data Science/USP**
+
+Ano: 2026
+
+------------------------------------------------------------------------
+
+# Status do projeto
+
+Este repositório corresponde ao desenvolvimento do Trabalho de Conclusão de Curso e poderá sofrer alterações durante a evolução da pesquisa.

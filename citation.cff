@@ -1,0 +1,43 @@
+# CITATION.cff
+
+```yaml
+cff-version: 1.2.0
+
+message: "If you use this code, please cite it as described below."
+
+title: "Modelagem e Análise de Mortalidade no Brasil"
+
+type: software
+
+authors:
+  - family-names: "Chrispim"
+given-names: "Pedro"
+
+abstract: >
+  Código e procedimentos computacionais desenvolvidos para o Trabalho de
+Conclusão de Curso sobre análise e modelagem de mortalidade no Brasil.
+O projeto inclui procedimentos de importação, processamento e integração
+de dados, análise descritiva, modelagem estatística e avaliação de modelos
+utilizando R, Python e Quarto.
+
+license: "MIT"
+
+repository-code: "https://github.com/pedrochrispim/mba_ds"
+
+version: "0.1.0"
+
+date-released: "2026-08-13"
+
+keywords:
+- epidemiology
+- mortality
+- Brazil
+- statistical modeling
+- data analysis
+- negative binomial regression
+- Poisson regression
+- R
+- Python
+- Quarto
+```
+
