@@ -58,11 +58,11 @@ import platform
 print("Python:", platform.python_version())
 print("Executável:", sys.executable)
 
-try:
-    import factor_analyzer
-    print("factor_analyzer:", factor_analyzer.__version__)
-except Exception as e:
-    print("factor_analyzer não encontrado:", e)
+# try:
+#     import factor_analyzer
+#     print("factor_analyzer:", factor_analyzer.__version__)
+# except Exception as e:
+#     print("factor_analyzer não encontrado:", e)
     
 import numpy as np
 import pandas as pd

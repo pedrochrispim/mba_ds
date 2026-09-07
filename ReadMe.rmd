@@ -1,5 +1,5 @@
 ---
-title: "README — Modelagem e Análise de Mortalidade no Brasil"
+title: "README — Modelagem multivariada e imputação de dados para identificação de fatores associados aos óbitos violentos nacionais"
 output: html_notebook
 ---
 
@@ -140,7 +140,7 @@ Quando necessário, os arquivos originais não são disponibilizados diretamente
 
 ## 0. Nota sobre Hardware
 
-A maior parte do projeto pode ser executado em computadores relativamente comuns hoje em dia (meados de 2026) equivalentes a processadores pentium i5 11ª geração ou superior, com 16GB de RAM. Entretanto, a fase inicial de preparo da base de dados (data wrangling e limpeza) consome muita memória por causa do tamanho das bases do DATASUS e pode ser difícil rodar essa parte com essa configuração base. Recomenda-se utilizar SQL (sugestão não testada em 01_1_Importacao.sql) ou outra configuração mais robusta no preparo do dataset. O projeto foi inteiramente executado em um processador M4 Pro com 48GB de RAM, rodando R e Python. Foi utilizada a IDE RStudio.
+A maior parte do projeto pode ser executado em computadores relativamente comuns hoje em dia (meados de 2026) equivalentes a processadores pentium i5 11ª geração ou superior, com 16GB de RAM. Entretanto, a fase inicial de preparo da base de dados (espcialmente data wrangling e limpeza da base original do SIM) consome muita memória e processamento por causa do tamanho das bases do DATASUS e pode ser difícil rodar essa parte com essa configuração base. Recomenda-se utilizar SQL (sugestão não testada em 01_1_Importacao.sql) ou outra configuração mais robusta no preparo do dataset. O projeto foi inteiramente executado em um processador M4 Pro com 48GB de RAM, rodando R 4.6 e Python 3.13. Foi utilizada a IDE RStudio.
 
 ## 1. Clonar o repositório
 
@@ -168,8 +168,8 @@ Instale:
 - Python;
 - Quarto;
 - os pacotes e bibliotecas necessários:
-  - R (*read.dbc*, *data.table*, *ggplot2*, *patchwork*, *mice*, *rstatix*, *zoo*, *arrow* e *stringr*)
-  - Python (*pandas*, *NumPy*, *factor_analyzer*, *statsmodels*, *Pingouin*, *seaborn* e *scikit-learn*)
+  - R (*read.dbc*, *data.table*, *ggplot2*, *patchwork*, *mice*, *rstatix*, *zoo*, *arrow* , *stringr, janitor, DT*)
+  - Python (*pandas*, *NumPy*, *factor_analyzer*, *statsmodels*, *Pingouin*, *scikit-learn, scipy, tqdm, pathlib*)
 
 As versões recomendadas deverão ser informadas na documentação de reprodutibilidade.
 
