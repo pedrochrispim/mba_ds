@@ -307,54 +307,95 @@ gc()
 
 # atencao basica
 # 2010 - 2020
-ab <- fread("./data/raw/br_ms_atencao_basica_municipio.csv.gz")
+ab2020_files <- list.files("./data/raw/ab/_2020",
+                         full.names = T)
 
-ab[,":="(codmun6 = id_municipio_6,
-         uf = sigla_uf)]
+ab2020 <- rbindlist(lapply(ab2020_files,function(x){
+  a = read_xlsx(x,
+                sheet = "Dados",
+                col_names = c("competencia",  # Competência CNES
+                              "regiao",       # Região
+                              "uf",           # UF
+                              "estado",       # Estado
+                              "N_esf",        # N° eSF
+                              "N_ab_param",   # N° Equipe AB Parametrizada
+                              "N_esf_ab",     # N° Equipe eSF AB
+                              "populacao",    # População
+                              "N_cobesf",     # N° Cobertura ESF
+                              "ch_med",       # CH Médico
+                              "ch_enf",       # CH Enfermeiro
+                              "ch_esf_eq",    # CH eSF equivalente
+                              "cobab",        # Cobertura AB
+                              "cobesf",       # Cobertura ESF
+                              "N-cobab"))     # N° Cobertura AB
+  setDT(a)
+  b = a[regiao != "Região"]
+  return(b)
+}))[,id := .I]
 
-abuf <- ab[,.(coduf= str_sub(id_municipio_6, end = 2),
-              uf,
-              populacao,
-              populacao_coberta_total_atencao_basica,
-              ano, 
-              mes)]
 
+ab20201 <- ab2020[,lapply(.SD, function(x){str_replace_all(x,",","")}), .SDcols = c("id","N_esf",
+                                                                                    "N_ab_param",
+                                                                                    "N_esf_ab",
+                                                                                    "populacao",
+                                                                                    "N_cobesf",
+                                                                                    "ch_med",
+                                                                                    "ch_enf",
+                                                                                    "ch_esf_eq",
+                                                                                    "N-cobab")]
 
-abuf <- abuf[,.(populacao = sum(populacao),
-                popab = sum(populacao_coberta_total_atencao_basica)), by = .(coduf, uf, ano, mes)]
+ab20202 <- ab2020[,lapply(.SD, function(x){str_replace_all(x,"%","")}), 
+                  .SDcols = c("id","cobab",
+                              "cobesf")
+                  ][,lapply(.SD, as.numeric)]
 
-abuf[,":="(cobab = round(popab/populacao*100,2))]
+ab2020 <- cbind(ab2020[,.(competencia,regiao,uf,estado)],
+                ab20201,
+                ab20202)
+
+ab2020[,":="(ano = as.integer(str_sub(competencia,end = 4)),
+             mes = as.integer(str_sub(competencia,start = 5)))]
+
+ab2020 <- estados[,.(uf,coduf)][ab2020, on = "uf"]
 
 
 # 2021 - 2023
-pns_files <- list.files(path = "./data/raw",
-                       pattern = "cobertura-pns-01-09-2026",
-                       full.names = T)
+ab2023_files <- list.files("./data/raw/ab/2021_",
+                           full.names = T)
 
-ab2023 <- rbindlist(lapply(pns_files,function(x){
+ab2023 <- rbindlist(lapply(ab2023_files,function(x){
   a = read_xlsx(x,
-                sheet = "Dados")
-  return(a)
-}))
+                sheet = "Dados",
+                col_names = c("competencia",   # Competência CNES   
+                              "regiao",        # Região     
+                              "uf",            # UF            
+                              "estado",        # Estado 
+                              "populacao",     # População 
+                              "N_cap_fin",     # Qt. eAP financiada
+                              "N_esf_fin",     # Qt. eSF financiada 
+                              "Ncad_cap_fin",  # Qt. Cadastros eAP financiadas 
+                              "Ncad_esf_fin",  # Qt. Cadastros eSF financiadas
+                              "cad_total",     # Qt. Total de Cadastros (lim.pop.IBGE) 
+                              "cobab"))        # Cobertura APS (será tratada como AB)
+  setDT(a)
+  b = a[regiao != "Região"]
+  return(b)
+}))[,id := .I]
 
-ab2023 <- ab2023[,.(uf = UF,
-                    Estado = Estado,
-                    Regiao = Região,
-                    ano = as.integer(str_sub(`Competência CNES`,start = -4)),
-                    mest = str_sub(`Competência CNES`,end = 3),
-                    cobab = as.numeric(str_sub(str_replace(`Cobertura APS`,",", "."),end=-2)))]
+ab2023[,cobab := as.numeric(str_replace_all(cobab,c("," = ".",
+                                                    "%" ="")))]
+
+ab2023[,":="(ano = as.integer(str_sub(competencia,start = -4)),
+                       mest = str_sub(competencia,end = 3))]
 
 ab2023 <- mestxt[ab2023, on = "mest"]
-ab2023[,key := str_c(uf,)]
-
-ab2023 <- unique(populacao[,.(uf, coduf = as.integer(str_sub(codmun6,end=2)))])[ab2023, on = "uf"]
+ab2023 <- estados[,.(uf,coduf)][ab2023, on = "uf"]
 
 
 # UNIR AS BASES
-ab <- rbindlist(list(ab2023[,.(coduf, uf, ano, mes, cobab)],
-                     abuf[,.(coduf, uf, ano, mes, cobab)]))[ano %in% c(2010:2023)]
+ab <- rbindlist(list(ab2020[,.(coduf, uf, ano, mes, cobab)],
+                     ab2023[,.(coduf, uf, ano, mes, cobab)]))[ano %in% c(2010:2023)]
 
-ab <- estados[ab, on = "uf"][,i.coduf := NULL]
 
 saveRDS(ab, "./data/raw/ab.rds")
 
