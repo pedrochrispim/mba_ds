@@ -148,7 +148,7 @@ A maior parte do projeto pode ser executado em computadores relativamente comuns
 git clone git@github.com:pedrochrispim/mba_ds.git
 ```
 
-## 2. Obter os dados
+## 2. Obter os dados brutos
 
 Consulte os arquivos de documentação localizados em:
 
@@ -156,7 +156,7 @@ Consulte os arquivos de documentação localizados em:
 data/
 ```
 
-Os dados que não estiverem presentes no repositório deverão ser obtidos diretamente das fontes indicadas.
+Os dados que não estiverem presentes no repositório deverão ser obtidos diretamente das fontes indicadas. As fontes são os sites do DATASUS, do Ministério da Saúde (busque pelos relatórios públicos da Atenção Primária à Saúde, o SIDRA do IBGE e o Atlas brasil).
 
 Após o download, os arquivos deverão ser colocados na estrutura de diretórios especificada pela documentação.
 
@@ -174,6 +174,8 @@ Instale:
 As versões recomendadas deverão ser informadas na documentação de reprodutibilidade.
 
 ## 4. Executar a análise
+
+Execute primeiro os scripts para importar os dados e fazer a limpeza e consolidação das bases.
 
 A análise principal está organizada no arquivo:
 
@@ -207,7 +209,7 @@ Avaliação
 
 # Reprodutibilidade
 
-Este projeto busca permitir que outros pesquisadores possam compreender e reproduzir os procedimentos analíticos utilizados.
+Este projeto busca permitir que outros pesquisadores possam compreender e reproduzir os procedimentos analíticos utilizados.n Será preciso algum esforço na busca dos dados. Não disponibilizo por que a base do SIM é relativamente grande (\> 5GB) e é o endereço mais estável, através do ftp do DATASUS.
 
 Entretanto, a reprodução completa dos resultados depende de:
 
