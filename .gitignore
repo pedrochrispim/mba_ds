@@ -64,7 +64,11 @@ alpha.py
 /tcc/
 *tcc/
 */tcc/
+data/*
 !data/imputados
 !data/dataset
+!data/resultados
+!data/raw
+!data/raw/ab/.giteep
 
 plano_revisao_tcc.md
