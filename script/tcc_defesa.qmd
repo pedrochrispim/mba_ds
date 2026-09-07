@@ -592,11 +592,11 @@ for nome, df in datasets_e.items():
     )
 
 # escluir colunas
-col_excluir = ["estado","coduf","uf"]
-datasets_e = {
-  nome: df.drop(columns = col_excluir)
-  for nome, df in datasets_e.items()
-}
+# col_excluir = ["estado","coduf","uf"]
+# datasets_e = {
+#   nome: df.drop(columns = col_excluir)
+#   for nome, df in datasets_e.items()
+# }
 
 # renomeia colunas
 datasets_e = {
@@ -622,7 +622,6 @@ for nome, df in datasets_e.items():
  df["mes_cat"] = df["mes"].astype("category")
 
 
-        
 # preparo da base
 def preparar_base(df):
 
@@ -815,6 +814,9 @@ C(raca):desemprego
 #| label: modelos_poisson_ajuste
 #| cache: true
 
+from statsmodels.discrete.discrete_model import Poisson
+import pandas as pd
+
 df = preparar_base(datasets_e)
 
 def ajustar_ps(formula, data):
@@ -831,12 +833,7 @@ def ajustar_ps(formula, data):
     return resultado
 
 
-# eliminar desempregos zerados
-df_modelos = df.dropna(
-    subset=["desemprego"]
-)
-
-
+# ajuste de modelos com dataset completo
 modelos_full_ps = {}
 
 modelos_full_ps["M0"] = ajustar_ps(formula_M0, df)
@@ -845,6 +842,13 @@ modelos_full_ps["M2"] = ajustar_ps(formula_M2, df)
 modelos_full_ps["M3"] = ajustar_ps(formula_M3, df)
 modelos_full_ps["M4"] = ajustar_ps(formula_M4, df)
 modelos_full_ps["M5"] = ajustar_ps(formula_M5, df)
+
+
+
+# eliminar desempregos zerados
+df_modelos = df.dropna(
+    subset=["desemprego"]
+)
 
 modelos_dropna_ps = {}
 

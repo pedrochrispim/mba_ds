@@ -70,5 +70,6 @@ data/*
 !data/resultados
 !data/raw
 !data/raw/ab/.giteep
+tcc_defesa2.qmd
 
 plano_revisao_tcc.md
