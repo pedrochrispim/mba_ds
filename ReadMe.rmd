@@ -168,7 +168,7 @@ Instale:
 - Python;
 - Quarto;
 - os pacotes e bibliotecas necessários:
-  - R (*read.dbc*, *data.table*, *ggplot2*, *patchwork*, *mice*, *rstatix*, *zoo*, *arrow* , *stringr, janitor, DT*)
+  - R (*read.dbc*, *readxl*, *data.table*, *ggplot2*, *patchwork*, *mice*, *rstatix*, *zoo*, *arrow* , *stringr, janitor, DT*)
   - Python (*pandas*, *NumPy*, *factor_analyzer*, *statsmodels*, *Pingouin*, *scikit-learn, scipy, tqdm, pathlib*)
 
 As versões recomendadas deverão ser informadas na documentação de reprodutibilidade.
