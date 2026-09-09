@@ -5,6 +5,10 @@ output: html_notebook
 
 # Modelagem e Análise de Mortalidade no Brasil
 
+**Autor:** Pedro Paulo Chrispim
+
+**Licença:** MIT (ver abaixo)
+
 ## Trabalho de Conclusão de Curso em Data Science/USPEsalq
 
 Este repositório contém os códigos, procedimentos de processamento de dados, análises estatísticas e modelos desenvolvidos no âmbito do Trabalho de Conclusão de Curso (TCC):
@@ -138,9 +142,15 @@ Quando necessário, os arquivos originais não são disponibilizados diretamente
 
 # Como reproduzir a análise
 
-## 0. Nota sobre Hardware
+## 0. Nota técnica
+
+### 0.1.Hardware
 
 A maior parte do projeto pode ser executado em computadores relativamente comuns hoje em dia (meados de 2026) equivalentes a processadores pentium i5 11ª geração ou superior, com 16GB de RAM. Entretanto, a fase inicial de preparo da base de dados (espcialmente data wrangling e limpeza da base original do SIM) consome muita memória e processamento por causa do tamanho das bases do DATASUS e pode ser difícil rodar essa parte com essa configuração base. Recomenda-se utilizar SQL (sugestão não testada em 01_1_Importacao.sql) ou outra configuração mais robusta no preparo do dataset. O projeto foi inteiramente executado em um processador M4 Pro com 48GB de RAM, rodando R 4.6 e Python 3.13. Foi utilizada a IDE RStudio.
+
+### 0.2. Arquivos dbc
+
+Para ler o arquivo .DBC disponibilizado pelo DATASUS o fiz com o read.dbc,com o qual trabalo há muitos anos. mas parece que, no momento, não está disponível no repositório CRAN e na versão R 4.6.1 não é poss[ivel instalar de sua autora (github.com/danicat/read.dbc). Logo que tiver uma forma, atualizo este repositório.
 
 ## 1. Clonar o repositório
 

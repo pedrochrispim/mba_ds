@@ -27,6 +27,7 @@ library(zoo)
 library(arrow)
 library(janitor)
 library(DT)
+library(read.dbc)
 
 source("./Funcoes.R")
 
