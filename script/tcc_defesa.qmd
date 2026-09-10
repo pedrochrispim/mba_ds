@@ -88,7 +88,7 @@ from pathlib import Path
 
 ## Eliminação de registros irrecuperáveis
 
-Alguns registros não podemo ser utilizados. Por exemplo, aqueles sem data de nascimento, pois seria impossível estimar a idade da pessoa no momento de falecimento. São eliminados, também os menores de 10 anos de idade, que não fazem parte do estudo. São eliminados os que não têm definição de município, pois serão de pouca utilidade quando o modelo chegar na discriminação de município. É feita a estimativa de preenchimento dos campos.
+Alguns registros não podem ser utilizados. Por exemplo, aqueles sem data de nascimento, pois seria impossível estimar a idade da pessoa no momento de falecimento. São eliminados, também, os menores de 10 anos de idade, que não fazem parte do estudo. São eliminados os que não têm definição de município, pois serão de pouca utilidade quando o modelo chegar na discriminação de município. É feita a estimativa de preenchimento dos campos.
 
 ```{r}
 #| label: descarte
