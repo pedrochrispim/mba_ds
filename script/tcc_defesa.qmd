@@ -818,7 +818,7 @@ C(raca):desemprego
 from statsmodels.discrete.discrete_model import Poisson
 import pandas as pd
 
-df = preparar_base(datasets_e)
+df = preparar_base(df)
 
 def ajustar_ps(formula, data):
 
@@ -958,12 +958,12 @@ modelos_full_nb["M5"] = ajustar_nb(formula_M5, df)
 
 modelos_dropna_nb = {}
 
-modelos_dropna_nb"M0"] = ajustar_nb(formula_M0, df_modelos)
-modelos_dropna_nb"M1"] = ajustar_nb(formula_M1, df_modelos)
-modelos_dropna_nb"M2"] = ajustar_nb(formula_M2, df_modelos)
-modelos_dropna_nb"M3"] = ajustar_nb(formula_M3, df_modelos)
-modelos_dropna_nb"M4"] = ajustar_nb(formula_M4, df_modelos)
-modelos_dropna_nb"M5"] = ajustar_nb(formula_M5, df_modelos)
+modelos_dropna_nb["M0"] = ajustar_nb(formula_M0, df_modelos)
+modelos_dropna_nb["M1"] = ajustar_nb(formula_M1, df_modelos)
+modelos_dropna_nb["M2"] = ajustar_nb(formula_M2, df_modelos)
+modelos_dropna_nb["M3"] = ajustar_nb(formula_M3, df_modelos)
+modelos_dropna_nb["M4"] = ajustar_nb(formula_M4, df_modelos)
+modelos_dropna_nb["M5"] = ajustar_nb(formula_M5, df_modelos)
 
 
 # comparar os modelos_full
@@ -1047,7 +1047,10 @@ for nome, modelo in modelos_dropna.items():
         "AIC =", modelo.aic,
         "LL =", modelo.llf
     )
-    
+
+ for nome, modelo in modelos_dropna_nb.items():
+...     print(f"\n======= {nome} =====\n",
+...           modelo.summary())
 ```
 
 ### Modelo ZINB (inflacionado de zeros)
