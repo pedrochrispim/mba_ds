@@ -168,7 +168,7 @@ dunn_test(DIFDATA ~ Grupo_desc, data = agressoes_base[Grupo_desc %in% c("Agress�
 
 ```
 
-## Escolha das variaveis para imputação de dados
+## Escolha das variáveis para imputação de dados
 
 A escolha das variáveis é resultado da consolidação da literatura, que tem bem estabelecida a relação entre sexo, raça e idade, cidade e causa de óbito. Adicionalmente, o SIM oferece algumas variáveis que podem estar relacionadas entre si.
 
