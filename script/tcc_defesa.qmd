@@ -818,7 +818,7 @@ C(raca):desemprego
 from statsmodels.discrete.discrete_model import Poisson
 import pandas as pd
 
-df = preparar_base(df)
+original_e = preparar_base(datasets_e["original_e"])
 
 def ajustar_ps(formula, data):
 
@@ -837,28 +837,28 @@ def ajustar_ps(formula, data):
 # ajuste de modelos com dataset completo
 modelos_full_ps = {}
 
-modelos_full_ps["M0"] = ajustar_ps(formula_M0, df)
-modelos_full_ps["M1"] = ajustar_ps(formula_M1, df)
-modelos_full_ps["M2"] = ajustar_ps(formula_M2, df)
-modelos_full_ps["M3"] = ajustar_ps(formula_M3, df)
-modelos_full_ps["M4"] = ajustar_ps(formula_M4, df)
-modelos_full_ps["M5"] = ajustar_ps(formula_M5, df)
+modelos_full_ps["M0"] = ajustar_ps(formula_M0, original_e)
+modelos_full_ps["M1"] = ajustar_ps(formula_M1, original_e)
+modelos_full_ps["M2"] = ajustar_ps(formula_M2, original_e)
+modelos_full_ps["M3"] = ajustar_ps(formula_M3, original_e)
+modelos_full_ps["M4"] = ajustar_ps(formula_M4, original_e)
+modelos_full_ps["M5"] = ajustar_ps(formula_M5, original_e)
 
 
 
 # eliminar desempregos zerados
-df_modelos = df.dropna(
+original_e_modelos = original_e.dropna(
     subset=["desemprego"]
 )
 
 modelos_dropna_ps = {}
 
-modelos_dropna_ps["M0"] = ajustar_ps(formula_M0, df_modelos)
-modelos_dropna_ps["M1"] = ajustar_ps(formula_M1, df_modelos)
-modelos_dropna_ps["M2"] = ajustar_ps(formula_M2, df_modelos)
-modelos_dropna_ps["M3"] = ajustar_ps(formula_M3, df_modelos)
-modelos_dropna_ps["M4"] = ajustar_ps(formula_M4, df_modelos)
-modelos_dropna_ps["M5"] = ajustar_ps(formula_M5, df_modelos)
+modelos_dropna_ps["M0"] = ajustar_ps(formula_M0, original_e_modelos)
+modelos_dropna_ps["M1"] = ajustar_ps(formula_M1, original_e_modelos)
+modelos_dropna_ps["M2"] = ajustar_ps(formula_M2, original_e_modelos)
+modelos_dropna_ps["M3"] = ajustar_ps(formula_M3, original_e_modelos)
+modelos_dropna_ps["M4"] = ajustar_ps(formula_M4, original_e_modelos)
+modelos_dropna_ps["M5"] = ajustar_ps(formula_M5, original_e_modelos)
 
 
 # comparar os modelos_full_ps
