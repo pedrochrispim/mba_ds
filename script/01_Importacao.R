@@ -12,7 +12,7 @@ library(read.dbc)
 # Os arquivos têm o formato BRAAAA.dbc, sendo BR para Brasil, AAAA para o ano de consolidação dos dados.
 
 
-# fucao get data from datasus
+# funcao get data from datasus
 ftp_read_and_bind_rcurl <- function(
     base_url,
     subdir = "",
